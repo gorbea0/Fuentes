@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fuentes red· Analíticas LIMS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    input[type="date"], input[type="text"], input[type="file"] { background:#fff; color:#0f172a; border-color:#cbd5e1; }
+    .badge{display:inline-flex;align-items:center;border-radius:9999px;padding:.125rem .5rem;font-size:.75rem;font-weight:600;line-height:1rem}
+    .tab-active{background:#2563eb;color:#fff}.leaflet-popup-content button{cursor:pointer}.source-selected{outline:3px solid #2563eb;outline-offset:2px}.field-action:disabled{opacity:.45;cursor:not-allowed}
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+<header class="sticky top-0 z-40 border-b bg-white/90 backdrop-blur">
+  <div class="mx-auto max-w-7xl px-4 py-4 flex items-center gap-3">
+    <h1 class="text-xl sm:text-2xl font-semibold">⛲ Fuentes red· Analíticas LIMS</h1>
+    <span id="summaryCounts" class="ml-auto text-sm text-slate-600">Cargando…</span>
+  </div>
+</header>
+<main class="mx-auto max-w-7xl p-4 space-y-4">
+  <section class="rounded-2xl border bg-white shadow-sm">
+    <div class="p-4"><div id="remoteCsvMsg" class="text-sm text-slate-600">Cargando datos…</div></div>
+    <details class="border-t">
+      <summary class="cursor-pointer select-none px-4 py-3 hover:bg-slate-50 font-medium">Carga manual opcional</summary>
+      <div class="grid gap-4 md:grid-cols-3 p-4 pt-2">
+        <div class="rounded-xl border p-4"><h2 class="font-medium mb-2">CSV de muestras</h2><input id="csvSamples" type="file" accept=".csv" multiple class="block w-full rounded border p-2" /></div>
+        <div class="rounded-xl border p-4"><h2 class="font-medium mb-2">CSV de análisis</h2><input id="csvAnalyses" type="file" accept=".csv" multiple class="block w-full rounded border p-2" /></div>
+        <div class="rounded-xl border p-4"><h2 class="font-medium mb-2">JSON de puntos</h2><input id="filePuntosJson" type="file" accept=".json" class="block w-full rounded border p-2" /></div>
+      </div>
+    </details>
+  </section>
+
+  <section class="rounded-2xl border bg-white p-4 shadow-sm">
+    <div class="flex flex-wrap items-end gap-3">
+      <div><label class="block text-sm text-slate-600">Desde</label><input id="dateFrom" type="date" class="mt-1 rounded border p-2" /></div>
+      <div><label class="block text-sm text-slate-600">Hasta</label><input id="dateTo" type="date" class="mt-1 rounded border p-2" /></div>
+      <div class="flex-1 min-w-[250px]"><label class="block text-sm text-slate-600">Buscar</label><input id="searchBox" type="text" placeholder="F34, F-34, 34 o nombre/calle" class="mt-1 w-full rounded border p-2" /></div>
+      <button id="btnApplyFilters" class="rounded-xl border px-4 py-2 hover:bg-slate-50">Aplicar</button>
+      <button id="btnClearFilters" class="rounded-xl border px-4 py-2 hover:bg-slate-50">Limpiar</button>
+    </div>
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button id="tabSamples" class="tab-btn tab-active rounded-xl border px-3 py-1.5">Muestras de fuentes</button>
+      <button id="tabPoints" class="tab-btn rounded-xl border px-3 py-1.5">Fuentes agrupadas</button>
+      <button id="tabNoAnalysis" class="tab-btn rounded-xl border px-3 py-1.5">Fuentes sin análisis</button>
+    </div>
+    <div id="fieldTripBar" class="mt-4 rounded-2xl border bg-slate-50 p-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="font-medium">Modo muestreo</div>
+        <span id="selectedCount" class="badge bg-blue-100 text-blue-700">0 seleccionadas</span>
+        <button id="btnSelectVisible" class="rounded-xl border bg-white px-3 py-1.5 text-sm hover:bg-slate-50">Seleccionar visibles</button>
+        <button id="btnClearSelection" class="rounded-xl border bg-white px-3 py-1.5 text-sm hover:bg-slate-50">Limpiar selección</button>
+        <button id="btnNavigate" class="field-action rounded-xl bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700">🚗 Navegar</button>
+        <button id="btnFieldPdf" class="field-action rounded-xl bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700">📄 PDF de campo</button>
+        <button id="btnKml" class="field-action rounded-xl border bg-white px-3 py-1.5 text-sm hover:bg-slate-50">KML</button>
+      </div>
+      <div id="selectedPreview" class="mt-2 text-xs text-slate-600">Marca hasta 8 fuentes para preparar la salida. También puedes seleccionar desde el mapa.</div>
+    </div>
+  </section>
+
+  <section class="rounded-2xl border bg-white p-4 shadow-sm">
+    <div class="flex items-center justify-between gap-3 mb-3">
+      <h2 class="text-lg font-semibold">Mapa de fuentes</h2>
+      <div class="text-xs text-slate-600"><span class="inline-block w-3 h-3 rounded bg-green-500"></span> OK &nbsp;<span class="inline-block w-3 h-3 rounded bg-amber-400"></span> 1 inc. &nbsp;<span class="inline-block w-3 h-3 rounded bg-red-500"></span> ≥2 inc. &nbsp;<span class="inline-block w-3 h-3 rounded bg-slate-400"></span> sin análisis</div>
+    </div>
+    <div id="map" class="rounded-xl border" style="height:58vh"></div>
+    <div id="mapList" class="mt-3"></div>
+  </section>
+
+  <section class="rounded-2xl border bg-white p-2 shadow-sm">
+    <div id="samplesWrap" class="overflow-x-auto rounded-xl border">
+      <table class="min-w-full divide-y divide-slate-200">
+        <thead class="bg-slate-50 text-xs uppercase text-slate-600"><tr><th class="px-3 py-2 text-left">Fecha</th><th class="px-3 py-2 text-left">Id</th><th class="px-3 py-2 text-left">Fuente</th><th class="px-3 py-2 text-left">SP</th><th class="px-3 py-2 text-left"># análisis</th><th class="px-3 py-2 text-left"># incumpl.</th><th class="px-3 py-2 text-left">Evaluación</th></tr></thead>
+        <tbody id="tableBody" class="divide-y divide-slate-100 text-sm"></tbody>
+      </table>
+    </div>
+    <div id="pointsWrap" class="hidden"><ul id="pointsList" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3"></ul></div>
+    <div id="noAnalysisWrap" class="hidden"><ul id="noAnalysisList" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3"></ul></div>
+  </section>
+</main>
+
+<div id="modal" class="fixed inset-0 z-[5000] hidden items-center justify-center">
+  <div class="absolute inset-0 bg-black/40" onclick="closeModal()"></div>
+  <div class="relative max-h-[85vh] w-[95vw] max-w-5xl overflow-hidden rounded-2xl border bg-white shadow-2xl">
+    <div class="flex items-center justify-between border-b p-4"><h3 id="modalTitle" class="text-lg font-semibold">Detalle</h3><button class="rounded-lg p-2 hover:bg-slate-100" onclick="closeModal()">✕</button></div>
+    <div class="p-4 space-y-3 overflow-y-auto max-h-[70vh]">
+      <div id="modalHeader" class="text-sm text-slate-700"></div><div id="modalEval" class="text-sm"></div>
+      <div class="overflow-x-auto rounded-xl border"><table class="min-w-full divide-y divide-slate-200 text-sm"><thead class="bg-slate-50"><tr><th class="px-3 py-2 text-left">Parámetro</th><th class="px-3 py-2 text-left">Resultado</th><th class="px-3 py-2 text-left">Valor usado</th><th class="px-3 py-2 text-left">Estado</th><th class="px-3 py-2 text-left">Criterio</th></tr></thead><tbody id="modalBody" class="divide-y divide-slate-100"></tbody></table></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const REMOTE_SAMPLE_URLS = [
+'https://raw.githubusercontent.com/gorbea0/LIMS/main/REPORTER_SAMPLE_20250905.CSV',
+'https://raw.githubusercontent.com/gorbea0/LIMS/main/REPORTER_SAMPLE_20251219.CSV',
+'https://raw.githubusercontent.com/gorbea0/LIMS/main/REPORTER_SAMPLE_20260216.CSV'];
+const REMOTE_ANALYSIS_URLS = [
+'https://raw.githubusercontent.com/gorbea0/LIMS/main/REPORTER%205oct.CSV',
+'https://raw.githubusercontent.com/gorbea0/LIMS/main/REPORTER_ANALIS_20251219.CSV',
+'https://raw.githubusercontent.com/gorbea0/LIMS/main/REPORTER_ANALIS_20260216.CSV'];
+const PUNTOS_POTABLES_URLS = ['https://raw.githubusercontent.com/gorbea0/LIMS/main/Puntos_potables.json','https://cdn.jsdelivr.net/gh/gorbea0/LIMS@main/Puntos_potables.json'];
+const URL_COORDS_FUENTES = 'https://raw.githubusercontent.com/gorbea0/LIMS/main/coordenadas_fuentes.json';
+
+let samples=[], analyses=[], analysesById=new Map(), puntosInfo={}, coordsFuentes={}, currentTab='samples', lastRows=[], map, layer, markers=new Map(), selectedFuentes=new Set();
+const cleanId=v=>(v==null?'':String(v).trim());
+const normalize=s=>(s??'').toString().normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase().trim();
+const up=v=>(v??'').toString().toUpperCase();
+const escapeHtml=s=>(s??'').toString().replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+function setStatus(m){document.getElementById('remoteCsvMsg').textContent=m;}
+function toISODate(v){ if(!v) return ''; const d=new Date(v); if(!isNaN(d)) return d.toISOString().slice(0,10); const raw=(String(v).split(' ')[0]||'').replace(/T.*/,''); const m=raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/); if(m){const yyyy=m[3].length===2?'20'+m[3]:m[3]; return `${yyyy}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;} return raw; }
+function toDisplayDate(iso){const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m?`${m[3]}/${m[2]}/${m[1]}`:iso;}
+function toNumber(v){ if(v==null) return NaN; const n=parseFloat(String(v).replace(',','.').replace(/[^0-9.+-eE]/g,'')); return isNaN(n)?NaN:n; }
+function isFuenteSP(sp){ return /^[Ff][\s-]?\d+\s*$/.test(String(sp||'').trim()); }
+function fuenteNum(sp){ const m=String(sp||'').trim().match(/^[Ff][\s-]?(\d+)\s*$/); return m?String(parseInt(m[1],10)):''; }
+function fuenteCode(n){ return n ? `F-${n}` : ''; }
+function isFuenteJob(r){ const txt=up([r.job_name,r.test_schedule,r.table_name].join(' ')); return txt.includes('POT-FUENTE') || txt.startsWith('FUENTE') || txt.includes(' FUENTE'); }
+function isFuenteSample(r){ return isFuenteSP(r.sampling_point) && isFuenteJob(r); }
+function keySample(r){return cleanId(r.id_numeric)}
+function keyAnalysis(r){return `${cleanId(r.id_numeric)}||${normalize(r.component)}||${cleanId(r.result_value||r.result_text)}`}
+function mergeUnique(existing,incoming,keyFn){const m=new Map((existing||[]).map(r=>[keyFn(r),r])); for(const r of incoming||[]) if(keyFn(r)) m.set(keyFn(r),r); return [...m.values()];}
+function rebuildAnalysesById(){ analysesById=new Map(); for(const a of analyses){const k=cleanId(a.id_numeric); if(!k) continue; if(!analysesById.has(k)) analysesById.set(k,[]); analysesById.get(k).push(a);} }
+function parseCSV(txt){return Papa.parse(txt,{header:true,skipEmptyLines:true,transformHeader:h=>(h??'').toString().replace(/^\uFEFF/,'').replace(/\u00A0/g,' ').trim()}).data||[];}
+function field(row, names){
+  if(!row) return '';
+  for(const n of names){ if(row[n] != null && row[n] !== '') return row[n]; }
+  const norm = x => String(x||'').normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const wanted = names.map(norm);
+  for(const [k,v] of Object.entries(row)){ if(wanted.includes(norm(k)) && v != null && v !== '') return v; }
+  return '';
+}
+function parseSamplesFromText(txt){ const rows=parseCSV(txt).map(r=>({
+  id_numeric:cleanId(field(r,['Id Numeric','ID Numeric','Id numeric','id numeric','id_numeric','idnumeric','Id','id','Sample Id Numeric','Sample ID Numeric'])),
+  id_text:field(r,['Id Text','ID Text','id text','id_text','Id text']),
+  sampling_point:field(r,['Sampling point','sampling point','Sampling Point','sampling_point','SamplingPoint','Point','point']),
+  sampled_date_iso:field(r,['Sampled date iso','sampled_date_iso','Sampled date ISO'])||toISODate(field(r,['Sampled date','sampled date','sampled_date','Fecha','Date','date'])),
+  sampled_date:field(r,['Sampled date','sampled date','sampled_date','Fecha','Date','date']),
+  sample_type:field(r,['Sample type','sample_type','Sample Type']),
+  table_name:field(r,['Table','Table name','table_name','Table Name']),
+  description:field(r,['Description','description']),
+  job_name:field(r,['Job Name','Job name','job_name','Job']),
+  test_schedule:field(r,['Test schedule','test_schedule','Test Schedule','test schedule']),
+  collected_from:field(r,['Collected from','collected_from','Collected From']),
+  collected_by:field(r,['Collected by','collected_by','Collected By'])
+})).filter(s=>s.id_numeric && isFuenteSample(s)); samples=mergeUnique(samples,rows,keySample); }
+function parseAnalysesFromText(txt){ const rows=parseCSV(txt).map(r=>({
+  id_numeric:cleanId(field(r,['Id Numeric','ID Numeric','Id numeric','id numeric','id_numeric','idnumeric','Id','id','Sample Id Numeric','Sample ID Numeric','Sample Id','sample_id','Sample'])),
+  component:field(r,['Component name','component name','Component Name','component_name','Component','component','Analysis','Test','Parameter','Parámetro','Parametro']),
+  result_text:field(r,['Result text','result text','Result Text','result_text','Result','result','Resultado','Resultado texto']),
+  result_value:field(r,['Result value','result value','Result Value','result_value','Value','value','Valor','Numeric result'])
+})).filter(a=>a.id_numeric); analyses=mergeUnique(analyses,rows,keyAnalysis); rebuildAnalysesById(); }
+async function fetchText(url){const r=await fetch(url+(/\?/.test(url)?'&':'?')+'v='+Date.now(),{cache:'no-store'}); if(!r.ok) throw new Error('HTTP '+r.status); return await r.text();}
+async function loadCSVs(){setStatus('Cargando CSV remotos…'); const [ss,aa]=await Promise.all([Promise.all(REMOTE_SAMPLE_URLS.map(u=>fetchText(u).catch(e=>''))),Promise.all(REMOTE_ANALYSIS_URLS.map(u=>fetchText(u).catch(e=>'')))]); ss.filter(Boolean).forEach(parseSamplesFromText); aa.filter(Boolean).forEach(parseAnalysesFromText); setStatus(`Datos cargados: ${samples.length} muestras de fuentes y ${analyses.length} análisis en bruto.`);}
+function buildPuntos(rows){ for(const r of rows||[]){ const sp=cleanId(r['Sampling point']??r.sampling_point??r.SamplingPoint); if(!sp || !isFuenteSP(sp)) continue; puntosInfo[fuenteNum(sp)]={sp:fuenteCode(fuenteNum(sp)), nombre:cleanId(r.Nombre??r.nombre??r.Name) || fuenteCode(fuenteNum(sp)), tipo:cleanId(r.Tipo??r.tipo), subtipo:cleanId(r.Subtipo??r.subtipo), za:cleanId(r.ZA??r.za), titular:cleanId(r.Titular??r.titular), instalacion:cleanId(r.Instalacion??r.instalacion??r['Instalación'])}; }}
+async function loadPuntos(){ for(const url of PUNTOS_POTABLES_URLS){try{let t=await fetchText(url); t=t.replace(/\bNaN\b/g,'null').replace(/,\s*([}\]])/g,'$1'); const data=JSON.parse(t); buildPuntos(Array.isArray(data)?data:(data.rows||[])); return;}catch(e){}} }
+async function loadCoords(){ try{coordsFuentes=JSON.parse(await fetchText(URL_COORDS_FUENTES)); for(const k of Object.keys(coordsFuentes)){const n=String(parseInt(k,10)); if(!puntosInfo[n]) puntosInfo[n]={sp:fuenteCode(n),nombre:`Fuente ${n}`};} }catch(e){coordsFuentes={};} }
+function infoForNum(n){return puntosInfo[String(parseInt(n,10))]||{sp:fuenteCode(n),nombre:`Fuente ${n}`};}
+function parseFuenteQuery(raw){ const t=String(raw||'').trim(); const m=t.match(/^(?:[Ff]\s*-?\s*)?(\d+)$/); return m?String(parseInt(m[1],10)):''; }
+const limitesRaw={ 'aluminio':[200,600,'µg/L'],'amonio':[0.5,1,'mg/L'],'arsenico':[10,null,'µg/L'],'boro':[1.5,null,'mg/L'],'cloro libre':[1,5,'mg/L'],'cloro combinado':[2,3,'mg/L'],'coliformes totales':[0,100,'UFC/100mL'],'conductividad':[2500,4000,'µS/cm'],'enterococos':[0,null,'UFC/100mL'],'escherichia coli':[0,null,'UFC/100mL'],'hierro':[200,600,'µg/L'],'legionella spp':[100,null,'UFC/L'],'manganeso':[50,80,'µg/L'],'nitrato':[50,null,'mg/L'],'nitritos':[0.5,null,'mg/L'],'ph':[9.5,10,'pH'],'rcto. bacterias heterótrofas 22º':[100,1000,'UFC/mL'],'sodio':[200,600,'mg/L'],'sulfato':[250,750,'mg/L'],'turbidez':[4,null,'UNF']};
+const limites=new Map(Object.entries(limitesRaw).map(([k,v])=>[normalize(k),v]));
+function potKey(name){ const n=normalize(name); if(!n) return null; if(n.includes('enterococo')) return 'enterococos'; if(n.includes('coli')&&!n.includes('coliform')) return 'escherichia coli'; if(n.includes('coliform')) return 'coliformes totales'; if(n.includes('cultivable')||n.includes('heterotrof')) return 'rcto. bacterias heterótrofas 22º'; if(n.includes('legionella')) return 'legionella spp'; if(n.includes('nitrito')) return 'nitritos'; for(const k of limites.keys()) if(n.includes(k)) return k; return null; }
+function interpretValue(rt,rv){ const t=String(rt??'').trim(), n=normalize(t); if(/<\s*\d/.test(t)||/\bnd\b|no detectad|not detected/.test(n)) return {value:0,flag:'nd'}; const vt=toNumber(t), vr=toNumber(rv); if(Number.isFinite(vt)) return {value:vt,flag:''}; if(Number.isFinite(vr)) return {value:vr,flag:''}; return {value:NaN,flag:''}; }
+function evalItems(items){ const rows=[]; for(const it of items){ const k=potKey(it.component); const {value,flag}=interpretValue(it.result_text,it.result_value); if(!k){ rows.push({key:'',component:it.component,result_text:it.result_text,value,flag,unit:'',status:Number.isFinite(value)?'sin-criterio':'sin-dato',criterio:'Sin criterio automático'}); continue; } const [vp,estricto,unit]=limites.get(k)||[null,null,'']; let status='ok'; if(Number.isFinite(value)){ if(k==='ph'){ if(value>10||value<5.5) status='grave'; else if(value>=9.5||value<6.5) status='incumplimiento'; } else if(vp===0){ if(value>0) status=(estricto!=null&&value>estricto)?'grave':'incumplimiento'; } else { if(estricto!=null&&value>estricto) status='grave'; else if(vp!=null&&value>=vp) status='incumplimiento'; } } else status='sin-dato'; const criterio=k==='ph'?'VP 6.5–9.5 · E 5.5–10':(vp===0?`= 0 ${unit}`:`≤ ${vp}${unit?' '+unit:''}${estricto!=null?` · E ≤ ${estricto} ${unit}`:''}`); rows.push({key:k,component:it.component,result_text:it.result_text,value,flag,unit,status,criterio}); } const inc=rows.filter(r=>r.status==='grave'||r.status==='incumplimiento').length; const graves=rows.filter(r=>r.status==='grave').length; return {rows,inc,graves,status:graves?'grave':inc?'incumplimiento':'ok'}; }
+function statusBadge(s){ if(s==='grave') return '<span class="badge bg-red-100 text-red-700">Incumplimiento grave</span>'; if(s==='incumplimiento') return '<span class="badge bg-amber-100 text-amber-700">Incumplimiento</span>'; if(s==='ok') return '<span class="badge bg-emerald-100 text-emerald-700">OK</span>'; return '<span class="badge bg-slate-100 text-slate-600">Sin dato</span>'; }
+function enrich(){ return samples.map(s=>{ const n=fuenteNum(s.sampling_point), info=infoForNum(n), items=analysesById.get(cleanId(s.id_numeric))||[], ev=evalItems(items); return {...s,num:n,sp:fuenteCode(n),nombre:info.nombre||fuenteCode(n),info,items,paramsEvaluados:ev.rows,numAnalisis:ev.rows.length,numIncumplimientos:ev.inc,graves:ev.graves,status:ev.status,dateISO:s.sampled_date_iso,dateStr:toDisplayDate(s.sampled_date_iso)}; }); }
+function filteredRows(){ const df=document.getElementById('dateFrom').value, dt=document.getElementById('dateTo').value, rawQ=document.getElementById('searchBox').value, q=normalize(rawQ), qFuente=parseFuenteQuery(rawQ); let rows=enrich(); rows=rows.filter(r=>(!df||r.dateISO>=df)&&(!dt||r.dateISO<=dt)); if(q){ if(qFuente){ rows=rows.filter(r=>r.num===qFuente); } else { rows=rows.filter(r=>normalize([r.nombre,r.sp,r.sampling_point,r.collected_from,r.collected_by].join(' ')).includes(q)); } } rows.sort((a,b)=>a.dateISO<b.dateISO?1:-1); return rows; }
+function allFuenteNums(){ const set=new Set([...Object.keys(puntosInfo),...Object.keys(coordsFuentes).map(k=>String(parseInt(k,10))),...samples.map(s=>fuenteNum(s.sampling_point))].filter(Boolean)); return [...set].sort((a,b)=>Number(a)-Number(b)); }
+function pointsSummary(rows){ const map=new Map(); for(const n of allFuenteNums()){const i=infoForNum(n); map.set(n,{num:n,sp:fuenteCode(n),nombre:i.nombre||fuenteCode(n),info:i,muestras:0,analisis:0,inc:0,graves:0,rows:[]});} for(const r of rows){const p=map.get(r.num)||{num:r.num,sp:r.sp,nombre:r.nombre,info:r.info,muestras:0,analisis:0,inc:0,graves:0,rows:[]}; p.muestras++; p.analisis+=r.numAnalisis; p.inc+=r.numIncumplimientos; p.graves+=r.graves; p.rows.push(r); map.set(r.num,p);} return [...map.values()]; }
+function noAnalysisSources(){ const q=document.getElementById('searchBox')?.value||''; let pts=pointsSummary(enrich()).filter(p=>p.analisis===0); if(q.trim()) pts=pts.filter(p=>pointMatchesQuery(p,q)); return pts.sort((a,b)=>Number(a.num)-Number(b.num));}
+function pointMatchesQuery(p,qRaw){ const raw=String(qRaw||''); const q=normalize(raw); if(!q) return true; const qFuente=parseFuenteQuery(raw); if(qFuente) return String(p.num)===qFuente; return normalize([p.nombre,p.sp,p.info?.za,p.info?.subtipo,p.info?.instalacion].join(' ')).includes(q);}
+function pointSummariesForSearch(rows){ const q=document.getElementById('searchBox')?.value||''; let pts=pointsSummary(rows); if(q.trim()) pts=pts.filter(p=>p.rows.length>0 || pointMatchesQuery(p,q)); return pts.sort((a,b)=>Number(a.num)-Number(b.num));}
+
+function coordsForNum(num){ const raw=coordsFuentes[String(parseInt(num,10))]; if(!raw) return null; const [lat,lng]=String(raw).split(',').map(parseFloat); return (isFinite(lat)&&isFinite(lng)) ? {lat,lng} : null; }
+function fuenteFromNum(num){ const n=String(parseInt(num,10)); const i=infoForNum(n); const rows=enrich().filter(r=>r.num===n).sort((a,b)=>a.dateISO<b.dateISO?1:-1); const ev=evalItems((rows[0]?.items)||[]); const c=coordsForNum(n); return {num:n,sp:fuenteCode(n),nombre:i.nombre||fuenteCode(n),info:i,coord:c,rows}; }
+function googleMapsSearchUrl(f){ return f.coord ? `https://www.google.com/maps/search/?api=1&query=${f.coord.lat},${f.coord.lng}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(f.sp+' '+f.nombre)}`; }
+function googleMapsDirUrl(list){ const fs=list.filter(f=>f.coord); if(!fs.length) return ''; if(fs.length===1) return `https://www.google.com/maps/dir/?api=1&destination=${fs[0].coord.lat},${fs[0].coord.lng}`; const limited=fs.slice(0,10); const dest=limited[limited.length-1]; const way=limited.slice(0,-1).map(f=>`${f.coord.lat},${f.coord.lng}`).join('|'); return `https://www.google.com/maps/dir/?api=1&destination=${dest.coord.lat},${dest.coord.lng}&waypoints=${encodeURIComponent(way)}&travelmode=driving`; }
+function toggleFuente(num, force){ const n=String(parseInt(num,10)); if(force===true) selectedFuentes.add(n); else if(force===false) selectedFuentes.delete(n); else selectedFuentes.has(n)?selectedFuentes.delete(n):selectedFuentes.add(n); updateSelectionUI(); updateMarkerSelection(n); }
+function updateMarkerSelection(num){ const n=String(parseInt(num,10)); const mk=markers.get(n); if(!mk) return; const selected=selectedFuentes.has(n); try{ mk.setStyle({radius:selected?10:7,weight:selected?3:1,color:selected?'#111827':'#1f2937'}); }catch(e){} }
+window.toggleFuente=toggleFuente;
+function selectedList(){ return [...selectedFuentes].sort((a,b)=>Number(a)-Number(b)).map(fuenteFromNum); }
+function updateSelectionUI(){ const list=selectedList(); const c=document.getElementById('selectedCount'); if(c) c.textContent=`${list.length} seleccionada${list.length===1?'':'s'}`; const prev=document.getElementById('selectedPreview'); if(prev) prev.innerHTML=list.length ? list.map(f=>`<span class="inline-block mr-2 mb-1 rounded bg-white border px-2 py-0.5"><strong>${escapeHtml(f.sp)}</strong> ${escapeHtml(f.nombre||'')}</span>`).join('') : 'Marca hasta 8 fuentes para preparar la salida. También puedes seleccionar desde el mapa.'; document.querySelectorAll('.field-action').forEach(b=>b.disabled=list.length===0); document.querySelectorAll('[data-fuente-check]').forEach(ch=>{ch.checked=selectedFuentes.has(ch.dataset.fuenteCheck);}); document.querySelectorAll('[data-source-card]').forEach(el=>el.classList.toggle('source-selected',selectedFuentes.has(el.dataset.sourceCard))); }
+function visibleFuenteNums(){ const rows=filteredRows(); if(currentTab==='none') return noAnalysisSources().map(p=>p.num); if(currentTab==='points') return pointsSummary(rows).filter(p=>p.muestras).map(p=>p.num); return [...new Set(rows.map(r=>r.num))]; }
+function selectVisibleFuentes(){ visibleFuenteNums().forEach(n=>selectedFuentes.add(String(parseInt(n,10)))); updateSelectionUI(); render(); }
+function clearSelection(){ selectedFuentes.clear(); updateSelectionUI(); render(); }
+function navigateSelected(){ const list=selectedList(); if(!list.length) return; const missing=list.filter(f=>!f.coord); if(missing.length) alert('Estas fuentes no tienen coordenadas y no se incluirán en la ruta: '+missing.map(f=>f.sp).join(', ')); const url=googleMapsDirUrl(list); if(url) window.open(url,'_blank','noopener'); }
+function downloadFile(name, mime, text){ const blob=new Blob([text],{type:mime}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500); }
+function downloadKml(){ const list=selectedList(); if(!list.length) return; const placemarks=list.filter(f=>f.coord).map(f=>`<Placemark><name>${escapeHtml(f.sp+' '+f.nombre)}</name><description>${escapeHtml((f.info.za||'')+' '+googleMapsSearchUrl(f))}</description><Point><coordinates>${f.coord.lng},${f.coord.lat},0</coordinates></Point></Placemark>`).join('\n'); downloadFile(`fuentes_${new Date().toISOString().slice(0,10)}.kml`,'application/vnd.google-earth.kml+xml',`<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Fuentes seleccionadas</name>${placemarks}</Document></kml>`); }
+function qrUrl(url,size=116){ return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(url)}`; }
+function lonLatToTile(lat,lng,z){ const n=Math.pow(2,z), latRad=lat*Math.PI/180; return {x:(lng+180)/360*n, y:(1-Math.log(Math.tan(latRad)+1/Math.cos(latRad))/Math.PI)/2*n}; }
+function tileUrl(x,y,z){ const n=Math.pow(2,z); const xx=((x%n)+n)%n; return `https://tile.openstreetmap.org/${z}/${xx}/${y}.png`; }
+function osmTileMapHtml(f){
+  if(!f.coord) return '<div class="tilemap missing">Sin mapa: faltan coordenadas</div>';
+  const z=18, t=lonLatToTile(f.coord.lat,f.coord.lng,z), cx=Math.floor(t.x), cy=Math.floor(t.y);
+  const tiles=[];
+  for(let dy=-1;dy<=1;dy++) for(let dx=0;dx<3;dx++){
+    const x=cx-1+dx, y=cy+dy;
+    tiles.push(`<img src="${tileUrl(x,y,z)}" alt="" crossorigin="anonymous">`);
+  }
+  return `<div class="tilemap" title="Mapa ${escapeHtml(f.sp)}"><div class="tiles">${tiles.join('')}</div><div class="pin">●</div><div class="maplabel">${escapeHtml(f.sp)}</div></div>`;
+}
+function latestRowsHtml(f){ const rows=f.rows.slice(0,5); if(!rows.length) return '<div class="muted">Sin análisis</div>'; return `<table><thead><tr><th>Fecha</th><th>Id</th><th>Evaluación</th><th># análisis</th><th># inc.</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r.dateStr||''}</td><td>${escapeHtml(r.id_numeric)}</td><td>${r.status==='ok'?'OK':r.status==='grave'?'Inc. grave':'Incumpl.'}</td><td>${r.numAnalisis}</td><td>${r.numIncumplimientos}</td></tr>`).join('')}</tbody></table>`; }
+function generateFieldPdf(){
+  const list=selectedList(); if(!list.length) return;
+  const route=googleMapsDirUrl(list);
+  const chunks=[]; for(let i=0;i<list.length;i+=2) chunks.push(list.slice(i,i+2));
+  const cardHtml=(f,idx)=>{ const maps=googleMapsSearchUrl(f), nav=f.coord?`https://www.google.com/maps/dir/?api=1&destination=${f.coord.lat},${f.coord.lng}`:maps, mapHtml=osmTileMapHtml(f); return `<article class="card"><div class="head"><div class="title"><span class="ord">${idx+1}</span><div><h1>${escapeHtml(f.sp)}</h1><h2>${escapeHtml(f.nombre||'')}</h2></div></div><div class="qr"><img src="${qrUrl(nav,78)}"><div>Google Maps</div></div></div><div class="meta">${f.info.za?'<strong>ZA:</strong> '+escapeHtml(f.info.za)+' · ':''}${f.coord?`<strong>Coord.:</strong> ${f.coord.lat.toFixed(6)}, ${f.coord.lng.toFixed(6)}`:'Sin coordenadas'}</div>${mapHtml}<div class="bottom"><div><h3>Últimas analíticas</h3>${latestRowsHtml(f)}</div><div class="field"><h3>Campo</h3><p>□ Muestreada &nbsp; Hora: ______</p><p>Obs.:</p><div class="notes"></div></div></div><div class="link">${escapeHtml(nav)}</div></article>`; };
+  const sheets=chunks.map((chunk,ci)=>`<section class="sheet">${chunk.map((f,j)=>cardHtml(f,ci*2+j)).join('')}</section>`).join('');
+  const w=window.open('','_blank');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>PDF de campo · Fuentes</title><style>body{font-family:Arial,sans-serif;color:#111827;margin:0;background:#fff}.sheet{box-sizing:border-box;height:287mm;padding:6mm;page-break-after:always;display:grid;grid-template-rows:1fr 1fr;gap:4mm}.card{border:1px solid #d1d5db;border-radius:10px;padding:4mm;overflow:hidden;display:flex;flex-direction:column;gap:3px}.head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;border-bottom:1px solid #e5e7eb;padding-bottom:4px}.title{display:flex;align-items:flex-start;gap:8px;min-width:0}.ord{display:inline-flex;align-items:center;justify-content:center;background:#2563eb;color:white;border-radius:999px;width:24px;height:24px;font-weight:bold;font-size:13px;flex:0 0 auto}h1{font-size:24px;margin:0;line-height:1}h2{font-size:13px;margin:2px 0 0;line-height:1.15}.qr{text-align:center;font-size:9px;flex:0 0 auto}.qr img{width:78px;height:78px}.meta{font-size:10px}.tilemap{position:relative;width:100%;height:190px;border:1px solid #d1d5db;border-radius:8px;overflow:hidden;background:#f3f4f6}.tiles{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);width:100%;height:100%}.tiles img{width:100%;height:100%;object-fit:cover}.pin{position:absolute;left:50%;top:50%;transform:translate(-50%,-70%);font-size:28px;color:#dc2626;text-shadow:0 0 3px #fff,0 0 3px #fff}.maplabel{position:absolute;left:6px;bottom:4px;background:rgba(255,255,255,.9);border-radius:4px;padding:1px 5px;font-size:10px;font-weight:bold}.missing{display:flex;align-items:center;justify-content:center;background:#f3f4f6;color:#6b7280}.bottom{display:grid;grid-template-columns:1.25fr .75fr;gap:8px;min-height:0}h3{font-size:11px;margin:0 0 3px}table{width:100%;border-collapse:collapse;font-size:8.5px}th,td{border:1px solid #d1d5db;padding:2px;text-align:left}th{background:#f3f4f6}.field{font-size:10px}.field p{margin:3px 0}.notes{height:28px;border:1px solid #d1d5db;border-radius:6px}.link{font-size:6.5px;color:#6b7280;word-break:break-all}.muted{color:#6b7280;font-size:10px}.no-print{padding:10px;background:#f3f4f6;position:sticky;top:0;z-index:9}@media print{@page{size:A4;margin:0}.no-print{display:none}.sheet:last-child{page-break-after:auto}}</style></head><body><div class="no-print"><button onclick="window.print()" style="font-size:16px;padding:8px 14px">Imprimir / guardar como PDF</button> <span>${list.length} fuentes · 2 fichas por página para ahorrar papel.</span>${route?` <button onclick="window.open('${route}','_blank')" style="font-size:14px;padding:8px 14px">Abrir ruta completa</button>`:''}</div>${sheets}</body></html>`);
+  w.document.close();
+}
+function render(){ const rows=filteredRows(); lastRows=rows; document.getElementById('summaryCounts').textContent=`${rows.length} muestras · ${pointsSummary(rows).filter(p=>p.muestras).length} fuentes con muestra · ${noAnalysisSources().length} fuentes sin análisis`; document.getElementById('samplesWrap').classList.toggle('hidden',currentTab!=='samples'); document.getElementById('pointsWrap').classList.toggle('hidden',currentTab!=='points'); document.getElementById('noAnalysisWrap').classList.toggle('hidden',currentTab!=='none'); if(currentTab==='samples') renderSamples(rows); if(currentTab==='points') renderPoints(pointsSummary(rows).filter(p=>p.muestras)); if(currentTab==='none') renderNoAnalysis(noAnalysisSources()); renderMap(rows); updateSelectionUI(); }
+function renderSamples(rows){ const tb=document.getElementById('tableBody'); tb.innerHTML=''; for(const r of rows){ const tr=document.createElement('tr'); tr.className='hover:bg-slate-50 cursor-pointer'; tr.onclick=()=>openModal(r); tr.innerHTML=`<td class="px-3 py-2 whitespace-nowrap">${r.dateStr}</td><td class="px-3 py-2">${escapeHtml(r.id_numeric)}</td><td class="px-3 py-2">${escapeHtml(r.nombre)}</td><td class="px-3 py-2">${escapeHtml(r.sp)}</td><td class="px-3 py-2">${r.numAnalisis}</td><td class="px-3 py-2">${r.numIncumplimientos}</td><td class="px-3 py-2">${statusBadge(r.status)}</td>`; tb.appendChild(tr);} }
+function card(p,extra=''){ const checked=selectedFuentes.has(String(p.num))?'checked':''; return `<li data-source-card="${p.num}" class="rounded-xl border bg-white p-3 shadow-sm cursor-pointer hover:bg-slate-50 ${checked?'source-selected':''}" onclick="showSamplesForFuente('${p.num}')"><div class="flex items-start gap-2"><input data-fuente-check="${p.num}" type="checkbox" ${checked} onclick="event.stopPropagation();toggleFuente('${p.num}',this.checked)" class="mt-1 h-4 w-4"><div class="min-w-0"><div class="font-medium">${escapeHtml(p.nombre)}</div><div class="text-xs text-slate-600"><strong>${p.sp}</strong>${p.info.za?' · ZA: '+escapeHtml(p.info.za):''}${p.info.subtipo?' · '+escapeHtml(p.info.subtipo):''}</div><div class="mt-2 flex flex-wrap gap-1">${extra}<button type="button" onclick="event.stopPropagation();toggleFuente('${p.num}')" class="rounded border px-2 py-0.5 text-xs hover:bg-slate-50">${checked?'Quitar':'Seleccionar'}</button></div></div></div></li>`; }
+function renderPoints(points){ const ul=document.getElementById('pointsList'); ul.innerHTML=''; points.sort((a,b)=>Number(a.num)-Number(b.num)); for(const p of points) ul.innerHTML+=card(p,`<span class="badge bg-slate-100 text-slate-700">Muestras: ${p.muestras}</span><span class="badge bg-slate-100 text-slate-700">Análisis: ${p.analisis}</span><span class="badge bg-amber-100 text-amber-700">Incumpl.: ${p.inc}</span>${p.graves?`<span class="badge bg-red-100 text-red-700">Graves: ${p.graves}</span>`:''}`); }
+function renderNoAnalysis(points){ const ul=document.getElementById('noAnalysisList'); ul.innerHTML=''; for(const p of points) ul.innerHTML+=card(p,'<span class="badge bg-slate-100 text-slate-700">Sin análisis</span>'); }
+function initMap(){ if(map) return; map=L.map('map').setView([42.85,-2.67],12); const calles=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}); const satelite=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles &copy; Esri'}); const claro=L.tileLayer('https://cartodb-basemaps-a.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; Carto'}); calles.addTo(map); L.control.layers({'Calles':calles,'Satélite':satelite,'Claro':claro},null,{collapsed:false}).addTo(map); layer=L.layerGroup().addTo(map); }
+function markerColor(p){ if(p.analisis===0) return '#9ca3af'; if(p.inc>=2) return '#ef4444'; if(p.inc===1) return '#f59e0b'; return '#22c55e'; }
+function renderMap(rows){ initMap(); layer.clearLayers(); markers.clear(); const summaries=pointSummariesForSearch(rows); const q=(document.getElementById('searchBox')?.value||'').trim(); const bounds=[]; for(const p of summaries){ const coord=coordsFuentes[p.num]; if(!coord) continue; const [lat,lng]=String(coord).split(',').map(parseFloat); if(!isFinite(lat)||!isFinite(lng)) continue; const selected=selectedFuentes.has(String(p.num)); const m=L.circleMarker([lat,lng],{radius:selected?10:7,weight:selected?3:1,color:selected?'#111827':'#1f2937',fillColor:markerColor(p),fillOpacity:.9}).bindTooltip(p.sp,{direction:'top',offset:[0,-8]}).bindPopup(`<div class="text-sm"><div class="font-medium">${escapeHtml(p.nombre)}</div><div><strong>${p.sp}</strong></div><div>Muestras: <strong>${p.muestras}</strong> · Análisis: <strong>${p.analisis}</strong> · Inc.: <strong>${p.inc}</strong></div><div class="mt-1 flex gap-1 flex-wrap"><button class="px-2 py-0.5 rounded border text-xs" onclick="showSamplesForFuente('${p.num}')">Ver analíticas</button><button class="px-2 py-0.5 rounded border text-xs" onclick="toggleFuente('${p.num}')">${selected?'Quitar':'Seleccionar'}</button><button class="px-2 py-0.5 rounded border text-xs" onclick="window.open('${coordsForNum(p.num)?googleMapsSearchUrl(fuenteFromNum(p.num)):'#'}','_blank','noopener')">Maps</button></div></div>`).addTo(layer); markers.set(p.num,m); bounds.push([lat,lng]); } if(bounds.length){ const b=L.latLngBounds(bounds); if(q){ if(bounds.length===1) map.setView(bounds[0],17); else map.fitBounds(b,{padding:[30,30]}); } else if(!map._fitted){map.fitBounds(b,{padding:[20,20]}); map._fitted=true;} } }
+function showSamplesForFuente(num){ const rows=enrich().filter(r=>r.num===String(parseInt(num,10))).sort((a,b)=>a.dateISO<b.dateISO?1:-1); const info=infoForNum(num), box=document.getElementById('mapList'); if(markers.has(String(parseInt(num,10)))) markers.get(String(parseInt(num,10))).openPopup(); let html=`<div class="font-medium mb-1">Analíticas de ${escapeHtml(info.nombre)} (${fuenteCode(num)})</div>`; if(!rows.length){box.innerHTML=html+'<div class="text-sm text-slate-500">Esta fuente aún no tiene análisis.</div>'; return;} html+='<ul class="divide-y rounded-lg border">'; for(const r of rows){html+=`<li class="p-2 hover:bg-slate-50 cursor-pointer" onclick="openSampleById('${escapeHtml(r.id_numeric)}')"><div class="flex justify-between gap-2"><div><strong>${r.dateStr}</strong> · Id ${escapeHtml(r.id_numeric)} · ${statusBadge(r.status)}</div><div class="text-xs text-slate-600">${r.numAnalisis} análisis · ${r.numIncumplimientos} inc.</div></div></li>`;} box.innerHTML=html+'</ul>'; }
+window.showSamplesForFuente=showSamplesForFuente;
+function openSampleById(id){ const r=enrich().find(x=>String(x.id_numeric)===String(id)); if(r) openModal(r); }
+window.openSampleById=openSampleById;
+function openModal(r){ document.getElementById('modalTitle').textContent=`Muestra ${r.id_numeric} · ${r.sp}`; document.getElementById('modalHeader').innerHTML=`<div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"><div><span class="text-slate-500">Fecha:</span> <strong>${r.dateStr}</strong></div><div><span class="text-slate-500">Fuente:</span> <strong>${escapeHtml(r.nombre)}</strong></div><div><span class="text-slate-500">SP original:</span> <strong>${escapeHtml(r.sampling_point)}</strong></div><div><span class="text-slate-500">Job:</span> <strong>${escapeHtml(r.job_name)}</strong></div><div><span class="text-slate-500">Test schedule:</span> <strong>${escapeHtml(r.test_schedule)}</strong></div><div><span class="text-slate-500">Collected by:</span> <strong>${escapeHtml(r.collected_by)}</strong></div></div>`; document.getElementById('modalEval').innerHTML=`Evaluación general: ${statusBadge(r.status)}`; const tb=document.getElementById('modalBody'); tb.innerHTML=''; for(const p of r.paramsEvaluados.sort((a,b)=>(b.status==='grave')-(a.status==='grave')||(b.status==='incumplimiento')-(a.status==='incumplimiento'))){ const tr=document.createElement('tr'); tr.innerHTML=`<td class="px-3 py-2">${escapeHtml(p.component||p.key)}</td><td class="px-3 py-2">${escapeHtml(p.result_text)}${p.unit?' '+escapeHtml(p.unit):''}</td><td class="px-3 py-2">${Number.isFinite(p.value)?p.value:''}${p.flag==='nd'?' (no detectado)':''}</td><td class="px-3 py-2">${statusBadge(p.status)}</td><td class="px-3 py-2 text-slate-600">${escapeHtml(p.criterio)}</td>`; tb.appendChild(tr);} document.getElementById('modal').classList.remove('hidden'); document.getElementById('modal').classList.add('flex'); }
+function closeModal(){document.getElementById('modal').classList.add('hidden');document.getElementById('modal').classList.remove('flex');}
+window.closeModal=closeModal;
+['tabSamples','tabPoints','tabNoAnalysis'].forEach(id=>document.getElementById(id).onclick=()=>{currentTab=id==='tabSamples'?'samples':id==='tabPoints'?'points':'none'; document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('tab-active')); document.getElementById(id).classList.add('tab-active'); render();});
+document.getElementById('btnApplyFilters').onclick=render; document.getElementById('btnClearFilters').onclick=()=>{dateFrom.value='';dateTo.value='';searchBox.value='';render();}; document.getElementById('searchBox').addEventListener('keydown',e=>{if(e.key==='Enter')render();});
+document.getElementById('csvSamples').addEventListener('change',async e=>{for(const f of e.target.files) parseSamplesFromText(await f.text()); render();});
+document.getElementById('csvAnalyses').addEventListener('change',async e=>{for(const f of e.target.files) parseAnalysesFromText(await f.text()); render();});
+document.getElementById('filePuntosJson').addEventListener('change',async e=>{const f=e.target.files[0]; if(!f)return; const data=JSON.parse((await f.text()).replace(/\bNaN\b/g,'null')); buildPuntos(Array.isArray(data)?data:(data.rows||[])); render();});
+document.getElementById('btnSelectVisible').onclick=selectVisibleFuentes; document.getElementById('btnClearSelection').onclick=clearSelection; document.getElementById('btnNavigate').onclick=navigateSelected; document.getElementById('btnFieldPdf').onclick=generateFieldPdf; document.getElementById('btnKml').onclick=downloadKml;
+(async function start(){ try{ await Promise.all([loadPuntos(),loadCoords(),loadCSVs()]); render(); } catch(e){ console.error(e); setStatus('No se pudieron cargar todos los datos. Prueba con carga manual.'); render(); } })();
+</script>
+</body>
+</html>
